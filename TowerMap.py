@@ -135,6 +135,7 @@ class TowerMap:
         self.node_set.pop(key)
 
     def collect_coin_1round(self, mute: bool = False) -> int:
+        # make a copy of original tower map before use this!!!
         # collect 'free' coin(don't have to beat a monster) 1 round
         cur_node = self.root_node
         find = 0
@@ -158,6 +159,7 @@ class TowerMap:
         return flag
 
     def collect_powerful(self) -> int:
+        # make a copy of original tower map before use this!!!
         cur_node = self.root_node
         find = 0
         neighbors_list = cur_node.next
@@ -235,6 +237,7 @@ class TowerMap:
             self.monster_reward[node.key] = self.get_one_path_reward(node.key)
 
     def get_one_path_reward(self, node_key: int) -> int:
+        # make a copy of original tower map before use this!!!
         cp = copy.deepcopy(self)
         path_list: list[int] = []
         cur = node_key
@@ -260,6 +263,29 @@ class TowerMap:
             cur = self.path[cur].key
         path_list.reverse()
         return path_list
+
+    def fight_and_stronger(self) -> bool:
+        # make a copy of original tower map before use this!!!
+        flag = True
+        res = False
+        while flag:
+            flag = False
+            self.dijkstra()
+            self.get_monster_reward()
+            for monster_key in self.monster_reward:
+                reward = self.monster_reward[monster_key]
+                if reward > 0:
+                    res = True
+                    flag = True
+                    path_list = self.get_path_list(monster_key)
+                    # fight
+                    for key in path_list:
+                        if key in self.node_set:
+                            self.delete_node(key)
+                    # collect_coin
+                    self.collect_coin()
+                    break
+        return res
 
 
 def simulation(tm: TowerMap) -> bool:
@@ -291,36 +317,19 @@ def simulation(tm: TowerMap) -> bool:
 def simulation_powerful(tm: TowerMap) -> bool:
     test = copy.deepcopy(tm)
     test.collect_coin()
-    flag = True
-    while flag:
-        flag = False
-        test.dijkstra()
-        test.get_monster_reward()
-        for monster_key in test.monster_reward:
-            reward = test.monster_reward[monster_key]
-            if reward > 0:
-                flag = True
-                path_list = test.get_path_list(monster_key)
-                # fight
-                for key in path_list:
-                    if key in test.node_set:
-                        test.delete_node(key)
-                # collect_coin
-                test.collect_coin()
-                break
+    test.fight_and_stronger()
 
     if test.zeno_node.key not in test.node_set:
         return True
-    test.dijkstra()
 
+    test.dijkstra()
     path_list = test.get_path_list(test.zeno_node.key)
     for key in path_list:
-        test.collect_powerful()
-
         if key in test.node_set:
             res = test.fight(test.node_set[key])
             # print(test.node_set[key], res, test.hero.health)
             if not res:
                 return False
             test.delete_node(key)
+            test.fight_and_stronger()
     return True
