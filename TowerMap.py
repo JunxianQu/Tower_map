@@ -1,7 +1,7 @@
 import copy
 from collections import defaultdict
 import heapq as heap
-from typing import Tuple, Type
+from typing import Tuple, Type, Optional
 
 NodeMap = dict[int, 'MapNode']
 
@@ -68,6 +68,7 @@ class TowerMap:
                  graph,
                  start_i: int,
                  start_j: int) -> None:
+        self.monster_reward = None
         self.costs = None
         self.path = None
         self.start_j = start_j
@@ -129,34 +130,36 @@ class TowerMap:
         self.search_neighbors(idx, jdx + 1, tier, cur_node, visited)
         self.search_neighbors(idx, jdx - 1, tier, cur_node, visited)
 
-    def delete_node(self, key):
+    def delete_node(self, key: int):
         delete_node(self.node_set[key])
         self.node_set.pop(key)
 
-    def collect_coin_1round(self) -> bool:
+    def collect_coin_1round(self, mute: bool = False) -> int:
         # collect 'free' coin(don't have to beat a monster) 1 round
         cur_node = self.root_node
-        find = False
+        find = 0
         neighbors_list = cur_node.next
         tmp = copy.deepcopy(neighbors_list)
         for key in tmp:
             if key in self.node_set and neighbors_list[key].value == 'c':
-                find = True
+                find += 1
                 self.hero.health = self.hero.health + self.pl_hp
-                print(f"get coin at {key}")
+                if not mute:
+                    print(f"get coin at {key}")
                 self.delete_node(key)
         return find
 
-    def collect_coin(self) -> bool:
-        res = self.collect_coin_1round()
+    def collect_coin(self, mute: bool = False) -> int:
+        res = self.collect_coin_1round(mute)
         flag = res
-        while res:
-            res = self.collect_coin_1round()
+        while res > 0:
+            res = self.collect_coin_1round(mute)
+            flag += res
         return flag
 
-    def collect_powerful(self):
+    def collect_powerful(self) -> int:
         cur_node = self.root_node
-        find = False
+        find = 0
         neighbors_list = cur_node.next
         tmp = copy.deepcopy(neighbors_list)
         for key in tmp:
@@ -167,8 +170,7 @@ class TowerMap:
                 if reward >= self.monster.m_attack and alive:
                     self.fight(neighbors_list[key])
                     self.delete_node(key)
-                    self.collect_coin()
-                    find = True
+                    find += self.collect_coin()
         return find
 
     def check_reward(self, pos, vis: set) -> int:
@@ -225,6 +227,40 @@ class TowerMap:
 
         return True
 
+    def get_monster_reward(self):
+        self.monster_reward = {}
+        for node in self.node_set.values():
+            if node.value != 'M':
+                continue
+            self.monster_reward[node.key] = self.get_one_path_reward(node.key)
+
+    def get_one_path_reward(self, node_key: int) -> int:
+        cp = copy.deepcopy(self)
+        path_list: list[int] = []
+        cur = node_key
+        while cur != cp.root_node.key:
+            if cp.node_set[cur].value == 'M' or cp.node_set[cur].value == 'Z':
+                path_list.append(cur)
+            cur = cp.path[cur].key
+        path_list.reverse()
+        for node_key in path_list:
+            cp.delete_node(node_key)
+        if cp.zeno_node.key in path_list:
+            cost = (len(path_list) - 1) * cp.monster.m_attack + cp.monster.z_attack
+        else:
+            cost = len(path_list) * cp.monster.m_attack
+        return cp.collect_coin(mute=True) * cp.pl_hp - cost
+
+    def get_path_list(self, node_key: int) -> list:
+        path_list = []
+        cur = node_key
+        while cur != self.root_node.key:
+            if self.node_set[cur].value == 'M' or self.node_set[cur].value == 'Z':
+                path_list.append(cur)
+            cur = self.path[cur].key
+        path_list.reverse()
+        return path_list
+
 
 def simulation(tm: TowerMap) -> bool:
     path_list = []
@@ -251,19 +287,40 @@ def simulation(tm: TowerMap) -> bool:
 
     return True
 
-# print code
 
-# que.append(root_node)
+def simulation_powerful(tm: TowerMap) -> bool:
+    test = copy.deepcopy(tm)
+    test.collect_coin()
+    flag = True
+    while flag:
+        flag = False
+        test.dijkstra()
+        test.get_monster_reward()
+        for monster_key in test.monster_reward:
+            reward = test.monster_reward[monster_key]
+            if reward > 0:
+                flag = True
+                path_list = test.get_path_list(monster_key)
+                # fight
+                for key in path_list:
+                    if key in test.node_set:
+                        test.delete_node(key)
+                # collect_coin
+                test.collect_coin()
+                break
 
-# while(len(que) != 0):
-# size = len(que)
-# for s in range(size):
-#   cur_node = que.pop(0)
-#   # print( 'first: '+(str)(len(que)))
-#   # print(cur_node.key)
-#   if( cur_node.key in node_set):
-#     node_set.pop(cur_node.key)
-#   print('i:'+(str)(cur_node.key//100)+', j:' + (str)(cur_node.key%100) + ', value: ' + cur_node.value)
-#   for neighbor in cur_node.next:
-#     if( neighbor in node_set):
-#       que.append(cur_node.next[neighbor])
+    if test.zeno_node.key not in test.node_set:
+        return True
+    test.dijkstra()
+
+    path_list = test.get_path_list(test.zeno_node.key)
+    for key in path_list:
+        test.collect_powerful()
+
+        if key in test.node_set:
+            res = test.fight(test.node_set[key])
+            # print(test.node_set[key], res, test.hero.health)
+            if not res:
+                return False
+            test.delete_node(key)
+    return True
